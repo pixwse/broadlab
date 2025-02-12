@@ -153,7 +153,7 @@ def save_total_counts_image():
     # as a png image, where the pixel value is the total count (max 132, so
     # works fine)
 
-    input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
+    input_path = '/media/erik/T9/run1_D/outs/binned_outputs/square_002um/'
 
     # Load Visium HD data
     adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
@@ -164,6 +164,7 @@ def save_total_counts_image():
     # on, but to understand the structure)
     max_count = 0
     img = np.zeros((3350, 3350), dtype=np.uint8)
+
     for ix, count in enumerate(counts):
 
         if ix % 100000 == 0:
@@ -182,7 +183,11 @@ def save_total_counts_image():
 
     # Convert to u8 and save
     img_pil = PIL.Image.fromarray(img)
-    img_pil.save('_temp/temp_raw_u8.png')
+    img_pil.save('_temp/1D_temp_raw_u8.png')
+
+    img *= 2
+    img_pil = PIL.Image.fromarray(img)
+    img_pil.save('_temp/1D_temp_raw_u8_gain2.png')
 
     print('Done!')
 
@@ -290,6 +295,104 @@ def lab_nof_active_genes():
     print('OK')
 
 
+def lab_all_genes_two_rows():
+    # Compare the full gene expression of row 16 and 17 of the 1D example,
+    # where there is a notable difference in total counts
+
+    input_file = '_temp/1D_counts_raw.png'
+    img = cv2.imread(input_file, cv2.IMREAD_GRAYSCALE)
+
+    mean_rows = np.mean(img, axis=0, keepdims=True) # Mean over rows
+    mean_rows = mean_rows.flatten()
+
+    print(f'Mean of row 16: {mean_rows[16]}')  # ~5
+    print(f'Mean of row 17: {mean_rows[17]}')  # ~10
+
+    # Load Visium HD data
+    input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
+    adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
+
+    genome_sum_row16 = np.zeros((1, 18085)) # TODO: Don't hard-code
+    genome_sum_row17 = np.zeros((1, 18085))
+
+    for ix, spot_name in enumerate(adata.obs_names):
+        
+        # For debugging
+        # if ix == 10000:
+        #     break
+
+        x, y = spotname_to_xy(spot_name)
+        if y == 16:
+            genome_sum_row16 += adata.X[ix, :]
+
+        if y == 17:
+            genome_sum_row17 += adata.X[ix, :]
+
+    genome_sum_row16 = np.asarray(genome_sum_row16).flatten()
+    genome_sum_row17 = np.asarray(genome_sum_row17).flatten()
+
+    check_sum16 = np.sum(genome_sum_row16).item()
+    check_sum17 = np.sum(genome_sum_row17).item()
+    print(f'total counts, row 16: {check_sum16}, row 17: {check_sum17}')
+
+    # Look for highly expressed genes, print their counts + names
+    for ix in range(len(genome_sum_row16)):
+        count_row16 = int(genome_sum_row16[ix])
+        if count_row16 > 10:
+            count_row17 = int(genome_sum_row17[ix])
+            name = adata.var_names[ix]
+            print(f'Index {ix}: Name: {name}, count in row 16: {count_row16}, count in row 17: {count_row17}')
+
+    figure, axis = plt.subplots(2, 1)
+
+    axis[0].plot(genome_sum_row16)
+    # axis[0].set_ylim([0.0, 20.0])
+    axis[1].plot(genome_sum_row17)
+    # axis[1].set_ylim([0.0, 20.0])
+
+    figure.show()
+    figure.savefig('_temp/1D_row_16_and_17.pdf')
+    figure.waitforbuttonpress()
+
+
+def lab_all_genes():
+    # Show the full histogram of all genes in the entire sample. To get a feeling
+    # of their count distribution
+    # 
+    # Conclusion: Only a few genes are very active. For most of them, we find
+    # something like one mRNA per 10-100 cells. This means that we need more
+    # significant pooling in order to measure anything meaningful. This could be
+    # pooling over tissue area, or we could hope that lots of genes are co-expressed,
+    # such that we can get significance by looking at PCA components instead.
+
+    # Load Visium HD data
+    input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
+    adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
+
+    genome_sum = adata.X.sum(0)  # Sum over spots
+    genome_sum = np.asarray(genome_sum).flatten()
+
+    genome_sum *= 16 * 1/(3350*3350) # Rescale to roughly expected concentration per cell (if 1 cell is 4x4 pixels)
+
+    # Look for highly expressed genes, print their counts + names
+    # for ix in range(len(genome_sum_row16)):
+    #     count_row16 = int(genome_sum_row16[ix])
+    #     if count_row16 > 10:
+    #         count_row17 = int(genome_sum_row17[ix])
+    #         name = adata.var_names[ix]
+    #         print(f'Index {ix}: Name: {name}, count in row 16: {count_row16}, count in row 17: {count_row17}')
+
+    figure, axis = plt.subplots(2, 1)
+
+    axis[0].plot(genome_sum)
+    axis[1].plot(genome_sum)
+    axis[1].set_ylim([0.0, 0.1])
+
+    figure.show()
+    figure.savefig('_temp/1D_all_genes.pdf')
+    figure.waitforbuttonpress()
+
+
 if __name__ == '__main__':
     # lab_read_parquet()
     # lab_read_visium()
@@ -300,4 +403,7 @@ if __name__ == '__main__':
     # lab_xy_normalize()
 
     # lab_nof_active_genes()
-    save_active_genes_image()
+    # save_active_genes_image()
+
+    # lab_all_genes_two_rows()
+    lab_all_genes()
