@@ -1,9 +1,3 @@
-
-# Trying to visualize the CLL 2A example with the matching microscopy image
-#
-#
-#
-
 import os
 
 import geopandas as gpd
@@ -14,29 +8,18 @@ import pandas as pd
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
-
 import cv2
 import PIL
 
-# Helper functions
+# Lab stuff for understanding the spatial relationship between ST
+# data and H&E images
+#
 
-def spotname_to_xy(name: str) -> tuple[int, int]:
-    # TODO: Error handling
-    # TODO: Don't assume these spot names, should use the tissue_positions instead
-
-    parts = name.split('_') # e.g. ['s', '002um', '00658', '01498-1']
-   
-    y = int(parts[2])
-    parts2 = parts[3].split('-') # e.g. ['01498', '1']
-    x = int(parts2[0])
-
-    return (x,y)
-    
+# ----------------------------------------------------------------------------
+# Lab stuff
 
 def lab_read_parquet():
     # Reads the tissue_positions parquet file
-    #     
 
     input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/spatial/tissue_positions.parquet'
 
@@ -51,6 +34,7 @@ def lab_read_parquet():
 
 
 def lab_overlay_bin_centers():
+    # Show the H&E image with overlayed spot centers
 
     plt.interactive(True)
 
@@ -233,6 +217,10 @@ def save_active_genes_image():
 
 
 def lab_xy_normalize():
+    # Lab stuff for normalizing the 2um data by row/col means, to compensate
+    # for the line-like artifacts. Conclusion: This normalization seems
+    # reasonable, the data looks much better this way.
+
     input_file = '_temp/2A_counts_raw.png'
 
     img = cv2.imread(input_file, cv2.IMREAD_GRAYSCALE)
@@ -271,6 +259,11 @@ def lab_xy_normalize():
 
 
 def lab_nof_active_genes():
+    # Lab code to understand the distribution of counts in the 2um data.
+    # Conclusion: On locations where genes are found, it's typically just one
+    # (99.38% of all times). In 0.59% of all times, there's two. 3 or more is
+    # only in 0.03% of the cases. So when thinking about this, it makes sense
+    # to think of it as binary data as an approximation.
 
     input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
 
@@ -289,15 +282,18 @@ def lab_nof_active_genes():
     print(f'Rate of 1s: {nof_1s*100:.02f}%')
     print(f'Rate of 2s: {nof_2s*100:.02f}%')
     print(f'Rate of 3s: {nof_3s*100:.02f}%')
-    # Conclusion: On locations where genes are found, it's typically just one
-    # (99.38% of all times). In 0.59% of all times, there's two. 
 
     print('OK')
 
 
 def lab_all_genes_two_rows():
     # Compare the full gene expression of row 16 and 17 of the 1D example,
-    # where there is a notable difference in total counts
+    # where there is a notable difference in total counts.
+    # Conclusion: It looks like just a scaling factor between the two. Other
+    # variations are not statistically significant (can be just due to the
+    # Poisson-ish distributed counts). To know if there are other significant
+    # differences, we would need to e.g. aggregate over all low/high rows
+    # and see if these differences average out or not. 
 
     input_file = '_temp/1D_counts_raw.png'
     img = cv2.imread(input_file, cv2.IMREAD_GRAYSCALE)
@@ -364,6 +360,12 @@ def lab_all_genes():
     # significant pooling in order to measure anything meaningful. This could be
     # pooling over tissue area, or we could hope that lots of genes are co-expressed,
     # such that we can get significance by looking at PCA components instead.
+    # 
+    # Assuming that we can pool over cell type and that we find some cell type
+    # that occupies 1% of the sample. Then this is still 100k spots, i.e. even
+    # a gene that only active at a 0.01 count/spot intensity would still get
+    # 1k counts. That should be enough to start to do statisticall relevant
+    # things.
 
     # Load Visium HD data
     input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
@@ -372,7 +374,7 @@ def lab_all_genes():
     genome_sum = adata.X.sum(0)  # Sum over spots
     genome_sum = np.asarray(genome_sum).flatten()
 
-    genome_sum *= 16 * 1/(3350*3350) # Rescale to roughly expected concentration per cell (if 1 cell is 4x4 pixels)
+    # genome_sum *= 16 * 1/(3350*3350) # Rescale to roughly expected concentration per cell (if 1 cell is 4x4 pixels)
 
     # Look for highly expressed genes, print their counts + names
     # for ix in range(len(genome_sum_row16)):
@@ -386,7 +388,7 @@ def lab_all_genes():
 
     axis[0].plot(genome_sum)
     axis[1].plot(genome_sum)
-    axis[1].set_ylim([0.0, 0.1])
+    axis[1].set_ylim([0.0, 1e5])
 
     figure.show()
     figure.savefig('_temp/1D_all_genes.pdf')

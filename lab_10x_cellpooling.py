@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import PIL
 
 # Reproducing stuff from the 10x cell-level pooling experiment
+# Started, but not completed.
 
 
 def lab_10x_pooling():
@@ -44,5 +45,5 @@ def lab_read_visium():
 
 
 if __name__ == '__main__':
-    lab_read_visium2()
     # lab_10x_pooling()
+    lab_read_visium()

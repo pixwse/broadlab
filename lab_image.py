@@ -7,6 +7,9 @@ import large_image
 import numpy as np
 import io
 
+# Lab stuff to work with the H&E image only - checking how we can load it, 
+# split it into more convenient tiles etc.
+
 
 def lab_load_large_image():
     path = '/media/erik/T9/HD_images/run2_A/2024-08-29SRParryRichterPD1460124.tif'

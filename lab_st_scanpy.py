@@ -1,4 +1,4 @@
-import squidpy as sq
+# import squidpy as sq
 import h5py
 
 import scanpy as sc
@@ -19,9 +19,40 @@ import numpy as np
 import io
 
 
+# Idea:
+# ---
+# Even if some (most?) bins will consist of mixed cell types, perhaps the
+# PCA still offers a reasonable basis to project the data into? However, 
+# when we work with the 2um data, we just get individual counts, and
+# it doesn't make sense to log transform. So, we would like directions in
+# the data that are relevant for original data. Perhaps running PCA on the
+# non-log-transformed data could give such directions? The first few PCAs
+# will mostly contain individual highly expressed genes, but then we will
+# get other stuff, where the PCA components might provide good sets of
+# genes to aggregate over.
+# 
+# If so, a reasonable pipeline could be something like:
+# - Start with the 2um data, normalize rows/cols instead of normalizing bins.
+# - Bin down to 16um, run PCA on non-log-transformed data, save the top 50 PCs or so.
+# - Revisit the 2um data, project onto PCA components, get 50 coefficients per
+#   bin (2.1 Gb for the entire data if using float32)
+# - Aggregate over cells. Can be done after projection as long as we're just
+#   doing linear projectsions).
+# - Cluster in this PCA space instead. Could include spatial location.
+#
+# Initial experiment:
+# Goal: Find out if it is better to normalize rows/colums than to normalize
+# each bin separately.
+# Approach: Compare the two normalization procedures. Run some default
+# clustering thingy afterwards. How to look at the data to see if the results
+# are better? Just look in umap and see if things look separated?
+# How to know where true cell types actually are?
+
+
 def lab_scanpy_ts1():
     # Reproducing Spatial Transcriptomics example from
     # https://scanpy.readthedocs.io/en/stable/tutorials/spatial/basic-analysis.html
+    # Doesn't exist anymore?
 
     # Prepared the data by downloading everything from 
     # https://support.10xgenomics.com/spatial-gene-expression/datasets/1.0.0/V1_Human_Lymph_Node
@@ -71,45 +102,62 @@ def lab_scanpy_ts1():
     print('Done')
 
 
-# ----------------------------------------------------------------------------
-# Understanding the input data
+def lab_scanpy_pca():
+    # Lab code to look at PCA vectors etc
+    # 
+    # Conclusion: If we don't run log transformation first, there are only
+    # 3 PCs that dominate, clearly indicating a few very highly expressed genes.
+    # When we do log transform, it is more spread out. This makes sense, and it
+    # is reasonable to assume that the log transform is good.
 
-def lab_h5_clldata_original():
-    # Labbing with the raw space ranger output data in HDF5 format from 
-    # Johan's CLL dataset 
+    input_path = '/media/erik/T9/run1_D/outs/binned_outputs/square_016um/'
 
-    data_dir = '/media/erik/T9/run2_A/outs'
+    # Load Visium HD data
+    adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
 
-    with h5py.File(os.path.join(data_dir, 'feature_slice.h5'), "r") as f:
-        # Print all root level object names (aka keys) 
-        # these can be group or dataset names 
-        print("Keys: %s" % f.keys())
-        
-        # Can try things like
-        # min(f['feature_slices']['1000']['row'][:])
-        # qq = [int(k) for k in f['feature_slices'].keys()]
+    # Example stuff that can be done
+    # adata.obs['total_counts'].to_numpy()
+    # sc.pp.filter_cells(adata, min_counts=5000)
+    sc.pp.normalize_total(adata, inplace=True)
+    sc.pp.log1p(adata)
 
-        print('Done')
+    # PCA
+    print('Running PCA')
+    sc.pp.pca(adata) # Takes a few seconds
+    # Results are stored in:
+    #   - Input representation in the PCA basis:
+    #     adata.obsm['X_pca'] (168778x50 matrix)
+    #
+    #   - Principal components: 
+    #     adata.varm['PCs'] (18085x50 matrix)
+    #
+    #   - Variance per PC:
+    #     adata.uns['pca']['variance']
 
-# ----------------------------------------------------------------------------
-# Understanding the binned data
+    # Compute neighbor structure (needs to be done before UMAP)
+    print('Running neighbors') # Take a few seconds (< 1min). Uses PCA if it exists. If it doesn't, it warns and runs PCA first (unless we explicitly say otherwise)
+    sc.pp.neighbors(adata) # First need to create a neighborhood graph
+    # TODO: Where is the output stored?
 
-def lab_h5_clldata_binned_002um():
-    # Labbing with the raw space ranger output data in HDF5 format from 
-    # Johan's CLL dataset 
+    # Compute UMAP structure (needs to be done before plotting)
+    print('Running UMAP') 
+    sc.tl.umap(adata)
+    # TODO: Where is the output stored?
 
-    data_dir = '/media/erik/T9/run2_A/outs'
+    # TODO: Save pre-computed stuff such that we don't need to rerun all the above
 
-    with h5py.File(os.path.join(data_dir, 'binned_outputs/square_002um/filtered_feature_bc_matrix.h5'), "r") as f:
-        # Print all root level object names (aka keys) 
-        # these can be group or dataset names 
-        print("Keys: %s" % f.keys())
-        
-        # Can try things like
-        # min(f['feature_slices']['1000']['row'][:])
-        # qq = [int(k) for k in f['feature_slices'].keys()]
+    # Plot (using the above precomputed stuff, stored in adata)
+    print('Plotting UMAP')
+    sc.pl.umap(adata, size=2, color='IGKC')
 
-        print('Done')
+    # Example:
+    # qq = adata.X.sum(1) # Total counts
+    # adata.obs['erik_test'] = qq 
+    # sc.pl.umap(adata, size=2, color='erik_test')
+
+    plt.waitforbuttonpress()
+
+    print('Done')
 
 
 if __name__ == '__main__':
@@ -117,4 +165,5 @@ if __name__ == '__main__':
     # print("hej")
 
     # lab_scanpy_ts1()
-    lab_h5_clldata_binned_002um()
+    # lab_h5_clldata_binned_002um()
+    lab_scanpy_pca()
