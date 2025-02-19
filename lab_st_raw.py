@@ -76,6 +76,9 @@ def lab_systematic_row_umi_stuff():
     # systematic relationshow with the rows, e.g. such that some UMIs stop
     # working for some rows. It rather looks like an overall UMI-specific
     # attenuation.
+    # 
+    # Example: Good rows to study are the CLL 1A image, row 1001 (37k counts)
+    # and row 1002 (8.6k counts)
 
     data_dir = '/media/erik/T9/run1_A/outs'
 

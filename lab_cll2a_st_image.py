@@ -5,11 +5,14 @@ from shapely.geometry import Polygon, Point
 from scipy import sparse
 import scanpy as sc
 import pandas as pd
+import json
 
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 import PIL
+
+from utils import *
 
 # Lab stuff for understanding the spatial relationship between ST
 # data and H&E images
@@ -76,79 +79,74 @@ def lab_overlay_bin_centers():
     plt.imshow(tile)
     plt.scatter(filtered_xs, filtered_ys, marker='.', color='green', s=8)
     plt.show()
+    plt.savefig('_temp/CLL_2A_HE_spotcenter_overlay.pdf')
 
     while True:
         plt.pause(60)
 
 
-def lab_counts_as_image():
-    # Read the Visium HD using scanpy, sum all counts and visualize it as an
-    # image, to understand how the datastructure works
+def lab_resample_image_at_spots(input_dir: str, output_dir: str):
+    # Extract an image ROI sampling from the exact spot locations, to help
+    # getting an idea of the alignment
+    # 
+    # Conclusion: The 2A image looks quite well-aligned. Could probably be
+    # refined slightly, but local optimization might suffice for that purpose.
+    # 
+    # Note: The 'highres' image that we start with isn't that high resolution
+    # really. It's around 6k x 6k, but covering the entire slide. What we would
+    # like to have that would be more convenient to work with is something like
+    # a 26800x26800 image (8x the visium resolution) covering the exact same
+    # area. Still quite high-res, but small enough to be loadable using opencv.
+    # We should also do a better sampling (bilinear interpolation)
 
-    plt.interactive(True)
-    input_path = '/media/erik/T9/run2_A/outs/binned_outputs/square_002um/'
+    # Load image
+    print('Load image')
+    image = cv2.imread(os.path.join(input_dir, 'tissue_hires_image.png'))
+    image_height, image_width = image.shape[0:2]
 
-    # Load Visium HD data and spatial coordinates of spots
-    df_pos = pd.read_parquet(os.path.join(input_path, 'spatial/tissue_positions.parquet'))
-    adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
+    # Load spot centers
+    print('Load spot centers')
+    tp_df = pd.read_parquet(os.path.join(input_dir, 'tissue_positions.parquet'))
+    spot_ys = tp_df['array_row'].to_numpy()
+    spot_xs = tp_df['array_col'].to_numpy()
+    img_xs = tp_df['pxl_col_in_fullres'].to_numpy()
+    img_ys = tp_df['pxl_row_in_fullres'].to_numpy()
+    print(f'Image coords: x-range: {min(img_xs)}, {max(img_xs)}, y-range: {min(img_ys)}, {max(img_ys)}')
 
-    adata.X
-    # adata.X is now a CSR matrix with shape 10732334x18085
-    # Here, 18085 is the number of genes and 10732334 is the numer of spots. To
-    # find the spatial location of each spot, we need to look at the
-    # corresponding spot name or spot data in the parquet file.
+    # Load scale factors
+    print('Load scale factors')
+    with open(os.path.join(input_dir, 'scalefactors_json.json'), 'rt') as file:
+        scale_factors = json.load(file)
+    factor = scale_factors['tissue_hires_scalef']
 
-    counts = adata.X.sum(1)  # Sum over columns
+    spots_width = max(spot_xs) + 1
+    spots_height = max(spot_ys) + 1 
+    spot_image = np.zeros((spots_height, spots_width, 3), np.uint8)
 
-    # Put all counts in an image-like structure (slow, not the right way later
-    # on, but to understand the structure)
-    max_count = 0
-    img = np.zeros((3350, 3350))
-    for ix, c in enumerate(counts):
-
-        if ix % 100000 == 0:
-            print(f'Processed spots: {ix//100000}00k, max = {max_count}')
-
-        max_count = max(c, max_count)
-
-        # Find x,y coordinate
-        spot_name = adata.obs_names[ix]
-        x, y = spotname_to_xy(spot_name)
-
-        # Basic normalization
-        nc = c.item() / 80.0
-        nc = min(nc, 1.0)
-
-        # Set the pixel
-        img[y, x] = nc
-
-    print(f'max_count = {max_count}')
-
-    # Convert to u8 and save
-    img_u8 = (img * 255).astype(np.uint8)
-    img_pil = PIL.Image.fromarray(img_u8)
-    img_pil.save('_temp/temp.png')
-
-    print('Done!')
+    print('Process image')
+    for sx,sy,ix,iy in zip(spot_xs, spot_ys, img_xs, img_ys):
+        ix2 = clamp(int(ix * factor + 0.5), 0, image_width-1)
+        iy2 = clamp(int(iy * factor + 0.5), 0, image_height-1)
+        spot_image[sy, sx] = image[iy2, ix2]
+    
+    print('Saving image')
+    cv2.imwrite(os.path.join(output_dir, 'image_resampled_at_spots.png'), spot_image)
+    print('Done')
 
 
-def save_total_counts_image():
+def save_total_counts_image(input_dir: str, output_dir: str):
     # Read the Visium HD using scanpy, sum all counts and save it directly
     # as a png image, where the pixel value is the total count (max 132, so
     # works fine)
 
-    input_path = '/media/erik/T9/run1_D/outs/binned_outputs/square_002um/'
-
-    # Load Visium HD data
-    adata = sc.read_10x_h5(os.path.join(input_path, 'filtered_feature_bc_matrix.h5'))
-
-    counts = adata.X.sum(1)  # Sum over columns
+    # Load Visium HD data and sum over columns (genes)
+    adata = sc.read_10x_h5(os.path.join(input_dir, 'filtered_feature_bc_matrix.h5'))
+    counts = adata.X.sum(1) 
 
     # Put all counts in an image-like structure (slow, not the right way later
     # on, but to understand the structure)
     max_count = 0
     img = np.zeros((3350, 3350), dtype=np.uint8)
-
     for ix, count in enumerate(counts):
 
         if ix % 100000 == 0:
@@ -165,14 +163,11 @@ def save_total_counts_image():
 
     print(f'max_count = {max_count}')
 
-    # Convert to u8 and save
-    img_pil = PIL.Image.fromarray(img)
-    img_pil.save('_temp/1D_temp_raw_u8.png')
-
-    img *= 2
-    img_pil = PIL.Image.fromarray(img)
-    img_pil.save('_temp/1D_temp_raw_u8_gain2.png')
-
+    # Convert to u8 and save with different gains, for easier visualization (a bit hacky for now)
+    save_ndarray_as_image(img, 1, os.path.join(output_dir, 'counts.gain01.png'))
+    save_ndarray_as_image(img, 2, os.path.join(output_dir, 'counts.gain02.png'))
+    save_ndarray_as_image(img, 4, os.path.join(output_dir, 'counts.gain04.png'))
+    save_ndarray_as_image(img, 8, os.path.join(output_dir, 'counts.gain08.png'))
     print('Done!')
 
 
@@ -216,14 +211,12 @@ def save_active_genes_image():
     print('Done!')
 
 
-def lab_xy_normalize():
+def lab_xy_normalize(input_dir: str):
     # Lab stuff for normalizing the 2um data by row/col means, to compensate
     # for the line-like artifacts. Conclusion: This normalization seems
     # reasonable, the data looks much better this way.
 
-    input_file = '_temp/2A_counts_raw.png'
-
-    img = cv2.imread(input_file, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(os.path.join(input_dir, 'counts.gain01.png'), cv2.IMREAD_GRAYSCALE)
 
     mean_rows = np.mean(img, axis=0, keepdims=True) # Mean over rows
     mean_cols = np.mean(img, axis=1, keepdims=True) # Mean over cols
@@ -233,13 +226,13 @@ def lab_xy_normalize():
 
     figure, axis = plt.subplots(2, 1)
 
-    if False:
-        # Save normalized image
-        img_u8 = (img_f * 255).astype(np.uint8)
-        img_pil = PIL.Image.fromarray(img_u8)
-        img_pil.save('_temp/temp_rowcol_normalized.png')
-
     if True:
+        # Save normalized image
+        save_ndarray_as_image(img_f, 1, os.path.join(input_dir, 'counts_rowcolnorm.gain01.png'))
+        save_ndarray_as_image(img_f, 2, os.path.join(input_dir, 'counts_rowcolnorm.gain02.png'))
+        save_ndarray_as_image(img_f, 4, os.path.join(input_dir, 'counts_rowcolnorm.gain04.png'))
+
+    if False:
         # Plot row/col means
 
         mean_rows = mean_rows.flatten()
@@ -401,11 +394,13 @@ if __name__ == '__main__':
     # lab_overlay_bin_centers()
     # lab_counts_as_image()
 
-    # save_total_counts_image()
-    # lab_xy_normalize()
-
     # lab_nof_active_genes()
     # save_active_genes_image()
 
     # lab_all_genes_two_rows()
-    lab_all_genes()
+    # lab_all_genes()
+
+    # Good for visualizing alignment
+    save_total_counts_image('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/', '_temp/CLL1D')
+    lab_xy_normalize('_temp/CLL1D')
+    lab_resample_image_at_spots('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/spatial', '_temp/CLL1D')
