@@ -228,9 +228,8 @@ def lab_xy_normalize(input_dir: str):
 
     if True:
         # Save normalized image
-        save_ndarray_as_image(img_f, 1, os.path.join(input_dir, 'counts_rowcolnorm.gain01.png'))
-        save_ndarray_as_image(img_f, 2, os.path.join(input_dir, 'counts_rowcolnorm.gain02.png'))
-        save_ndarray_as_image(img_f, 4, os.path.join(input_dir, 'counts_rowcolnorm.gain04.png'))
+        save_ndarray_as_image(img_f, 256, os.path.join(input_dir, 'counts_rowcolnorm.gain256.png'))
+        save_ndarray_as_image(img_f, 512, os.path.join(input_dir, 'counts_rowcolnorm.gain512.png'))
 
     if False:
         # Plot row/col means
@@ -401,6 +400,6 @@ if __name__ == '__main__':
     # lab_all_genes()
 
     # Good for visualizing alignment
-    save_total_counts_image('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/', '_temp/CLL1D')
-    lab_xy_normalize('_temp/CLL1D')
-    lab_resample_image_at_spots('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/spatial', '_temp/CLL1D')
+    save_total_counts_image('/media/erik/T9/run2_D/outs/binned_outputs/square_002um/', '_temp/CLL2D')
+    lab_xy_normalize('_temp/CLL2D')
+    lab_resample_image_at_spots('/media/erik/T9/run2_D/outs/binned_outputs/square_002um/spatial', '_temp/CLL2D')
