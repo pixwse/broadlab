@@ -234,18 +234,17 @@ def get_rowcol_normalization_factors(img: np.ndarray) -> tuple[np.ndarray, np.nd
     # using a large median filter etc, but this could be adjusted.
     # 
     # This is still early lab code. Parameters should be added later.
-    mean_rows = np.mean(img, axis=0, keepdims=True) # Mean over rows
-    mean_cols = np.mean(img, axis=1, keepdims=True) # Mean over cols
+    col_means = np.mean(img, axis=0, keepdims=True) # Mean of each column
+    row_means = np.mean(img, axis=1, keepdims=True) # Mean of each row
 
     # Compute the normalization factors
-    mean_rows_f = medfilt(mean_rows.flatten(), 51)
-    mean_cols_f = medfilt(mean_cols.flatten(), 51)
+    row_means_f = medfilt(row_means.flatten(), 51)
+    col_means_f = medfilt(col_means.flatten(), 51)
 
-    row_factors = mean_rows_f / (mean_rows.flatten() + 1e-6)
-    col_factors = mean_cols_f / (mean_cols.flatten() + 1e-6)
+    row_factors = row_means_f / (row_means.flatten() + 1e-6)
+    col_factors = col_means_f / (col_means.flatten() + 1e-6)
 
     return (row_factors, col_factors)
-
 
 
 def lab_precompute_xy_lookup():
@@ -270,30 +269,28 @@ def lab_precompute_xy_lookup():
     np.save('_temp/CLL1D/spot_xy_lookup.npy', lookup)
 
 
-def lab_xy_normalize_all(input_dir: str):
+def lab_xy_normalize_all(input_dir: str, output_dir: str):
     # Trying to normalize the entire data (all genes) by normalizing each one
     # individually. First, just do this and look at the final complete count
     # image, to see if it looks more correctly normalized now.
     # 
-    # TODO: Need to consider how to deal with genes that are very low-expressed
-    # Perhaps just skip them for now (only apply the normalization for
-    # genes that are above a certain count
+    # Conclusions: This code works in the sense that it does what it is supposed
+    # to, but it's not a good method. The problem is that the total count image
+    # is dominated by the large number of low-expressed genes. 47% of all counts
+    # come from genes with an average count of 5 genes per row / column. For
+    # such genes, we don't have a chance to adjust the gain for each row/col
+    # separately for each gene. Instead, we need to rely on aggregate effects,
+    # as some barcodes seem to be worse for a larger set of genes.
     # 
-    # TODO: If we downweight some but not all genes, we should perhaps downweight
-    # the others as well, since they will otherwise be biased in comparison.
-    # Alternatively, when we adjust each gene, we should do so in a way that
-    # doesn't affect the total expression level for that gene, just the balance
-    # between rows/columns.
-    # 
-    # TODO(PRIO): This function is broken! If we extract the data for just
-    # IKGC later and just compute the single-gene counts for that gene, the
-    # results are not right (lines still visible)
+    # Another effect is that if we downweight some but not all genes, we should
+    # perhaps downweight the others as well, since they will otherwise be biased
+    # in comparison. Alternatively, when we adjust each gene, we should do so in
+    # a way that doesn't affect the total expression level for that gene, just
+    # the balance between rows/columns.
 
-    # Parameters (TODO: Make input struct)
+    # Parameters
     debug = False
     count_threshold = 200000 # This will include ~25 genes in the normalization for 1D, just as an ad-hoc first attempt
-    input_dir = '/media/erik/T9/run1_D/outs/binned_outputs/square_002um/'
-    output_dir = '_temp/CLL1D'
 
     # Load stuff
     adata = sc.read_10x_h5(os.path.join(input_dir, 'filtered_feature_bc_matrix.h5'))
@@ -307,11 +304,14 @@ def lab_xy_normalize_all(input_dir: str):
     if debug:
         nof_spots = 100
 
+    nof_changed_genes = 0
     for gene_ix in range(nof_genes):
         this_count = total_gene_counts[gene_ix]
 
         if this_count > count_threshold:
+        # if gene_ix == 2326: # DEBUG! adata.var_names.get_loc('IGKC') -> 2326
             print(f'gene_ix = {gene_ix}, this_count = {this_count}')
+            nof_changed_genes += 1
 
             # Apply col/row normalization for this gene
             X_this_gene = adata.X[:, gene_ix].toarray().flatten() # Flat list of counts for all spots
@@ -344,7 +344,7 @@ def lab_xy_normalize_all(input_dir: str):
                     
     print('Saving normalized adata matrix')
     adata.write(os.path.join(output_dir, 'normalized_adata.h5ad'))
-    print('Done!')
+    print(f'Done, {nof_changed_genes} genes changed')
 
 
 if __name__ == '__main__':
@@ -353,7 +353,7 @@ if __name__ == '__main__':
     # lab_xy_normalize('_temp/CLL2A', 'IGKC')
     # lab_xy_normalize2('_temp/CLL2A', 'IGKC')
 
-    # lab_save_gene_image('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/', 'IGKC', '_temp/CLL1D/onegene_IGKC')
+    lab_save_gene_image('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/', 'IGKC', '_temp/CLL1D/onegene_IGKC')
     # lab_xy_normalize('_temp/CLL1D', 'IGKC')
     # lab_xy_normalize2('_temp/CLL1D', 'IGKC')
 
@@ -362,11 +362,9 @@ if __name__ == '__main__':
     # lab_xy_normalize2('_temp/CLL2D', 'IGKC')
 
     # lab_plot_profiles()
-
     # lab_precompute_xy_lookup()
-    # lab_xy_normalize_all('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/')
 
-    # Very experimental: Save using the experimental gene-by-gen row/col normalization
+    # Experimental: Normalize every gene by row/col, save as a new h5an file, then regenerate the total count image
+    # lab_xy_normalize_all('/media/erik/T9/run1_D/outs/binned_outputs/square_002um/', '_temp/CLL1D')
     # lab_save_count_image('_temp/CLL1D/normalized_adata.h5ad', '_temp/CLL1D/counts_gxynorm', load_h5ad=True)
-
-    lab_save_gene_image('_temp/CLL1D/normalized_adata.h5ad', 'IGKC', '_temp/CLL1D/hacky_test_igkc', load_h5ad=True)
+    # lab_save_gene_image('_temp/CLL1D/normalized_adata.h5ad', 'IGKC', '_temp/CLL1D/hacky_test_igkc', load_h5ad=True)
